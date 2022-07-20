@@ -1,4 +1,9 @@
 
+import com.activfinancial.contentplatform.contentgatewayapi.common.UsEquityOptionHelper;
+import com.activfinancial.contentplatform.contentgatewayapi.consts.Exchange;
+import com.activfinancial.middleware.activbase.MiddlewareException;
+import com.activfinancial.middleware.fieldtypes.Rational;
+import org.javatuples.Quartet;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -7,11 +12,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.logging.Logger;
+
+import com.activfinancial.middleware.fieldtypes.Date;
 
 // https://query2.finance.yahoo.com/v7/finance/options/META?date=1659657600
 
@@ -27,14 +31,110 @@ public class OptionChain {
 
         String[] equities = {"META"};
 
-        final List<String> optionsChain = getCompleteOptionsChainForGivenEquity("META");
-        System.out.println(optionsChain);
+        for (String equity : equities) {
+
+            final List<String> optionsChain = getCompleteOptionsChainForGivenEquity(equity);
+
+            for (String optionContract : optionsChain) {
+
+                System.out.println(equity + " " + optionContract+" "+ convertOsiSymbolToActivType_B_HashCode(optionContract));
+            }
+        }
+
     }
 
 
+    public static String convertOsiSymbolToActivType_B_HashCode(String osiSymbol) {
+
+        final Quartet<String, String, String, String> optionsData = createOptionsData(osiSymbol);
+
+        final String curSymbol = optionsData.getValue0();
+        final String expirationDate = optionsData.getValue1();
+        final String strikePrice = optionsData.getValue2();
+        final String optionType = optionsData.getValue3();
 
 
-    public static List<String> getCompleteOptionsChainForGivenEquity(String equityName){
+        try {
+            final String activHashCode = getActivType_B_HashCode(curSymbol, expirationDate, strikePrice, optionType);
+            return activHashCode;
+        } catch (MiddlewareException e) {
+            e.printStackTrace();
+        }
+
+        return "";
+    }
+
+
+    public static String getActivType_B_HashCode(String symbol, String expirationDate, String strikePrice, String optionType) throws MiddlewareException {
+
+        final String[] split = expirationDate.split("-");
+        final int dateVal = Integer.parseInt(split[0]);
+        final int monthVal = Integer.parseInt(split[1]);
+        final int yearVal = Integer.parseInt(split[2]);
+
+        UsEquityOptionHelper helper = new UsEquityOptionHelper();
+
+        helper.setExchange(Exchange.EXCHANGE_US_OPTIONS_COMPOSITE);
+        helper.setRoot(symbol);
+
+        final UsEquityOptionHelper.OptionType optionTypeEnum = optionType.equalsIgnoreCase("C") ? UsEquityOptionHelper.OptionType.OPTION_TYPE_CALL : UsEquityOptionHelper.OptionType.OPTION_TYPE_PUT;
+        helper.setExpirationDateAndOptionType(new Date(yearVal, monthVal, dateVal), optionTypeEnum);
+
+        final double strikePriceUpdated = Double.parseDouble(strikePrice) * 10;
+        helper.setStrikePrice(new Rational((long) strikePriceUpdated, Rational.Denominator.DENOMINATOR_1DP));
+
+        StringBuilder sb = new StringBuilder();
+        helper.serialize(sb);
+
+        return sb.toString();
+    }
+
+    private static Quartet<String, String, String, String> createOptionsData(String osiSymbol) {
+
+        StringBuilder stringBuilder = new StringBuilder();
+
+        int index = -1;
+
+        for (int k = 0; k < osiSymbol.length(); k++) {
+            if (Character.isLetter(osiSymbol.charAt(k))) {
+                stringBuilder.append(osiSymbol.charAt(k));
+            } else {
+                index = k;
+                break;
+            }
+        }
+
+        String symbol = stringBuilder.toString();
+
+        String restOfStr = osiSymbol.substring(index);
+
+        String str = restOfStr.substring(0, 6);
+        final List<String> strings = splitStringEqually(str, 2);
+
+        String DASH = "-";
+        String expirationDate = strings.get(2) + DASH + strings.get(1) + DASH + "20" + strings.get(0);
+        String optionType = restOfStr.substring(6, 7);
+
+
+        restOfStr = restOfStr.substring(7);
+        final String strikePrice = String.valueOf(Double.parseDouble(restOfStr) / 1000);
+
+
+        List<String> listOfFields = Arrays.asList(symbol, expirationDate, strikePrice, optionType);
+        Quartet<String, String, String, String> quartet = Quartet.fromCollection(listOfFields);
+
+        return quartet;
+    }
+
+    public static List<String> splitStringEqually(String text, int size) {
+        List<String> result = new ArrayList<String>((text.length() + size - 1) / size);
+        for (int i = 0; i < text.length(); i += size) {
+            result.add(text.substring(i, Math.min(text.length(), i + size)));
+        }
+        return result;
+    }
+
+    public static List<String> getCompleteOptionsChainForGivenEquity(String equityName) {
 
 
         List<String> completeOptionsChain = new ArrayList<>();
