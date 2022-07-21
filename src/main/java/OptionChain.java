@@ -7,13 +7,13 @@ import org.javatuples.Quartet;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.activfinancial.middleware.fieldtypes.Date;
 
@@ -23,13 +23,25 @@ public class OptionChain {
 
     private static final Logger LOGGER = Logger.getLogger(OptionChain.class.getName());
 
+    private static final String CSV_FILE_NAME = "/Users/chaklader/IdeaProjects/OptionChain/data/data.csv";
+
     private static HttpURLConnection conn;
 
     private final static String BASE_URL = "https://query2.finance.yahoo.com/v7/finance/options/";
 
-    public static void main(String[] args) {
+
+
+
+
+
+
+    public static void main(String[] args) throws IOException {
+
+        final OptionChain optionChain = new OptionChain();
 
         String[] equities = {"META"};
+
+        List<String[]> dataLinesForAllEquities = new ArrayList<>();
 
         for (String equity : equities) {
 
@@ -37,12 +49,44 @@ public class OptionChain {
 
             for (String optionContract : optionsChain) {
 
-                System.out.println(equity + " " + optionContract+" "+ convertOsiSymbolToActivType_B_HashCode(optionContract));
+                final String activType_b_hashCode = convertOsiSymbolToActivType_B_HashCode(optionContract);
+                if (activType_b_hashCode.isEmpty()) {
+                    continue;
+                }
+
+                String[] data = {equity, optionContract, activType_b_hashCode};
+                dataLinesForAllEquities.add(data);
             }
+        }
+
+        optionChain.givenDataArray_whenConvertToCSV_thenOutputCreated(dataLinesForAllEquities);
+    }
+
+
+    public void givenDataArray_whenConvertToCSV_thenOutputCreated(List<String[]> dataLines) throws IOException {
+        File csvOutputFile = new File(CSV_FILE_NAME);
+        try (PrintWriter pw = new PrintWriter(csvOutputFile)) {
+            dataLines.stream()
+                .map(this::convertToCSV)
+                .forEach(pw::println);
         }
 
     }
 
+    public String convertToCSV(String[] data) {
+        return Stream.of(data)
+            .map(this::escapeSpecialCharacters)
+            .collect(Collectors.joining(","));
+    }
+
+    public String escapeSpecialCharacters(String data) {
+        String escapedData = data.replaceAll("\\R", " ");
+        if (data.contains(",") || data.contains("\"") || data.contains("'")) {
+            data = data.replace("\"", "\"\"");
+            escapedData = "\"" + data + "\"";
+        }
+        return escapedData;
+    }
 
     public static String convertOsiSymbolToActivType_B_HashCode(String osiSymbol) {
 
